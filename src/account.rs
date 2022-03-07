@@ -64,6 +64,22 @@ impl Account {
             Instruction::Chargeback(data) => self.chargeback(data),
         }
     }
+
+    pub fn available(&self) -> Decimal {
+        self.available
+    }
+
+    pub fn held(&self) -> Decimal {
+        self.held
+    }
+
+    pub fn total(&self) -> Decimal {
+        self.total
+    }
+    
+    pub fn locked(&self) -> bool {
+        self.locked
+    }
 }
 
 #[cfg(test)]
