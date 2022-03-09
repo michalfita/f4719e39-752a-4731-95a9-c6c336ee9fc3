@@ -10,6 +10,10 @@ use itertools::Itertools;
 mod input;
 mod account;
 mod output;
+mod errors;
+mod result;
+
+use crate::result::Result;
 
 #[derive(Debug, Default)]
 struct Register {
@@ -23,15 +27,14 @@ impl Register {
             Account::default()
         });
 
-        account.apply(instruction);
+        account.apply(instruction).ok(); // Ignore account processing errors, potential place to log them
     }
 
-    pub fn process(&mut self, inputfilename: &Path) -> csv::Result<()> {
+    pub fn process(&mut self, inputfilename: &Path) -> Result {
         let mut reader = ReaderBuilder::new()
             .flexible(true)
             .trim(Trim::All)
-            .from_path(inputfilename)
-            .expect("failed to open the input file");
+            .from_path(inputfilename)?;
     
         for result in reader.deserialize() {
             let record: input::workaround::Instruction = result?;
@@ -43,7 +46,7 @@ impl Register {
         Ok(())
     }
 
-    fn inner_dump(thebook_iter: impl IntoIterator<Item = (u16, Account)>, sink: &mut impl Write) -> csv::Result<()> {
+    fn inner_dump(thebook_iter: impl IntoIterator<Item = (u16, Account)>, sink: &mut impl Write) -> Result {
         let mut writer = csv::Writer::from_writer(sink);
 
         for (client, account) in thebook_iter {
@@ -51,29 +54,33 @@ impl Register {
             writer.serialize(record)?
         }
 
-        writer.flush().expect("flush failed"); // TODO: proper error handling
+        writer.flush()?;
 
         Ok(())
     }
 
-    pub fn dump(self, sink: &mut impl Write) -> csv::Result<()> {
+    pub fn dump(self, sink: &mut impl Write) -> Result {
         let thebook_iter = self.thebook.into_iter();
         Self::inner_dump(thebook_iter, sink)
     }
 
     #[cfg(test)] // Outside test leave unsorted for performance reasons
-    pub fn dump_sorted(self, sink: &mut impl Write) -> csv::Result<()> {
+    pub fn dump_sorted(self, sink: &mut impl Write) -> Result {
         let thebook_iter = self.thebook.into_iter().sorted_by_key(|x| x.0);
         Self::inner_dump(thebook_iter, sink)
     }
 }
 
-fn main() {
-    let inputfile = env::args().nth(1).expect("no input file");
+fn main() -> Result {
+    use errors::TransactionSystemError::ArgumentsError;
+
+    let inputfile = env::args().nth(1).ok_or(ArgumentsError("no input file provided".to_owned()))?;
    
     let mut register = Register::default();
-    register.process(Path::new(&inputfile)).expect("processing failed");
-    register.dump(&mut io::stdout()).expect("failed generating output");
+    register.process(Path::new(&inputfile))?;
+    register.dump(&mut io::stdout())?;
+
+    Ok(())
 }
 
 #[cfg(test)]

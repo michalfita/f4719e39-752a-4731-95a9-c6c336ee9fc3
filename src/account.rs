@@ -3,7 +3,9 @@ use std::collections::{HashMap};
 use rust_decimal::{Decimal};
 use serde::Serialize;
 
+use crate::errors::TransactionSystemError;
 use crate::input::{Instruction, Transaction, Operation};
+use crate::result::Result;
 
 #[derive(Serialize, Debug, Default)]
 pub struct Account {
@@ -15,13 +17,15 @@ pub struct Account {
 }
 
 impl Account {
-    fn deposit(&mut self, data: Transaction) {
+    fn deposit(&mut self, data: Transaction) -> Result {
         self.available += data.amount();
         self.total += data.amount();
         self.txhistory.insert(data.tx(), data);
+
+        Ok(())
     }
 
-    fn withdrawal(&mut self, mut data: Transaction) {
+    fn withdrawal(&mut self, mut data: Transaction) -> Result {
         let mut available = self.available;
         available -= data.amount();
         if available >= Decimal::new(0, 0) {
@@ -29,33 +33,63 @@ impl Account {
             self.total -= data.amount();
             data.negate(); // That way we record transaction with the negative sign
             self.txhistory.insert(data.tx(), data);
+
+            Ok(())
+        } else {
+            Err(TransactionSystemError::TransactionError{ 
+                message: "attempt to withdraw more than available".to_owned(),
+                transaction: data
+            })
         }
-        // Ignoring potential error here
     }
 
-    fn dispute(&mut self, data: Operation) {
+    fn dispute(&mut self, data: Operation) -> Result {
+        // Refer to `README.md` for information about disputes repeated for the same transaction
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.available -= entry.amount();
             self.held += entry.amount();
+
+            Ok(())
+        } else {
+            Err(TransactionSystemError::OperationError{
+                message: "attempt to dispute non-existing transaction".to_owned(),
+                operation: data
+            })
         }
     }
 
-    fn resolve(&mut self, data: Operation) {
+    fn resolve(&mut self, data: Operation) -> Result {
+        // Refer to `README.md` for information about resolves for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.available += entry.amount();
             self.held -= entry.amount();
+
+            Ok(())
+        } else {
+            Err(TransactionSystemError::OperationError{
+                message: "attempt to resolve non-existing transaction".to_owned(),
+                operation: data
+            })
         }
     }
 
-    fn chargeback(&mut self, data: Operation) {
+    fn chargeback(&mut self, data: Operation) -> Result {
+        // Refer to `README.md` for information about chargebacks for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.locked = true;
             self.total -= entry.amount();
             self.held -= entry.amount();
+
+            Ok(())
+        } else {
+            Err(TransactionSystemError::OperationError{
+                message: "attempt to chargeback non-existing transaction".to_owned(),
+                operation: data
+            })
         }
     }
 
-    pub fn apply(&mut self, instruction: Instruction) {
+    pub fn apply(&mut self, instruction: Instruction) -> Result {
         match instruction {
             Instruction::Deposit(data)    => self.deposit(data),
             Instruction::Withdrawal(data) => self.withdrawal(data),
@@ -98,7 +132,7 @@ mod test {
         assert_eq!(account.locked, false);
 
         let data = Transaction::new(1, 1, Decimal::from_i32(30).unwrap() );
-        account.deposit(data);
+        assert!(account.deposit(data).is_ok());
 
         assert_eq!(account.available, Decimal::from_i32(30).unwrap());
         assert_eq!(account.held, Decimal::from_i32(0).unwrap());
@@ -115,13 +149,15 @@ mod test {
         assert_eq!(account.locked, false);
 
         let data = Transaction::new(1, 1, Decimal::from_i32(30).unwrap() );
-        account.withdrawal(data);
+        assert!(account.withdrawal(data).is_ok());
 
         assert_eq!(account.available, Decimal::from_i32(70).unwrap());
         assert_eq!(account.held, Decimal::from_i32(0).unwrap());
         assert_eq!(account.total, Decimal::from_i32(90).unwrap());
 
-        // TODO: Check overdraft failure
+        // Overdraft attempt
+        let data = Transaction::new(1, 1, Decimal::from_i32(80).unwrap() );
+        assert!(account.withdrawal(data).is_err());
     }
 
     #[test]
@@ -134,10 +170,10 @@ mod test {
         assert_eq!(account.locked, false);
 
         let data = Transaction::new(1, 1, Decimal::from_i32(50).unwrap() );
-        account.deposit(data);
+        assert!(account.deposit(data).is_ok());
 
         let data = Operation::new(1, 1);
-        account.dispute(data);
+        assert!(account.dispute(data).is_ok());
 
         assert_eq!(account.available, Decimal::from_i32(150).unwrap());
         assert_eq!(account.held, Decimal::from_i32(50).unwrap());
@@ -154,13 +190,13 @@ mod test {
         assert_eq!(account.locked, false);
 
         let data = Transaction::new(1, 1, Decimal::from_i32(50).unwrap() );
-        account.deposit(data);
+        assert!(account.deposit(data).is_ok());
 
         let data = Operation::new(1, 1);
-        account.dispute(data);
+        assert!(account.dispute(data).is_ok());
 
         let data = Operation::new(1, 1);
-        account.resolve(data);
+        assert!(account.resolve(data).is_ok());
 
         assert_eq!(account.available, Decimal::from_i32(200).unwrap());
         assert_eq!(account.held, Decimal::from_i32(0).unwrap());
@@ -177,13 +213,13 @@ mod test {
         assert_eq!(account.locked, false);
 
         let data = Transaction::new(1, 1, Decimal::from_i32(50).unwrap() );
-        account.deposit(data);
+        assert!(account.deposit(data).is_ok());
 
         let data = Operation::new(1, 1);
-        account.dispute(data);
+        assert!(account.dispute(data).is_ok());
 
         let data = Operation::new(1, 1);
-        account.chargeback(data);
+        assert!(account.chargeback(data).is_ok());
 
         assert_eq!(account.available, Decimal::from_i32(150).unwrap());
         assert_eq!(account.held, Decimal::from_i32(0).unwrap());
