@@ -8,6 +8,8 @@ The program covers all 7 types of instructions feeding the input. The specificat
 
 Please refer to the [Specification flaw](#specification-flaw) subsection below for more details.
 
+From production quality perspective the application has proper error handling and logging.
+
 ## Corectness
 I'm using the variants (`enum`) to distinguish transactions and operations handled, then unit tests to confirm basic logic of operations.
 
@@ -33,11 +35,14 @@ In normal work conditions both above flaws would be raised for clarification wit
 ### Stage 1: No error handling / No logging
 The initial version doesn't have any error handling nor logging.
 
+### CSV deserialization workaround
+As [this issue](https://github.com/BurntSushi/rust-csv/issues/211) will remains unresolved in the `csv` crate I convert one `workaround::Instruction` type to `Instruction` type in the `input` module using `From<>` trait implementation. This may not be as efficient as direct deserialization, but with the enum type the program has architecture more pleasant to deal with.
+
 ### Stage 3: Proper error handling
 The most commonly used `thiserror` crate is harnessed to create error structure with error variants used to utilize with `Result<T,E>` as result type in functions in the application. Please refer to `src/error.rs` for details.
 
-### CSV deserialization workaround
-As [this issue](https://github.com/BurntSushi/rust-csv/issues/211) will remains unresolved in the `csv` crate I convert one `workaround::Instruction` type to `Instruction` type in the `input` module using `From<>` trait implementation. This may not be as efficient as direct deserialization, but with the enum type the program has architecture more pleasant to deal with.
+### Stage 4: Logging
+Added logging can be enabled and used to diagnose problems with the program.
 
 ## Efficiency
 
@@ -53,6 +58,9 @@ The function used for integration test checking actual CSV output **sorts** the 
 
 ### Stage 3: Error handling
 Adding error handling to `account.rs` has impact on processing power in cases when there are errors in input data. This is demonstration bringing the code closer to the production system, even if they're ignored as specification states, but it opens door for get them logged.
+
+### Stage 4: Logging
+Adding logging if not disabled may impact the processing efficiency. However, this as feature is disabled.
 
 ## Maintainability
 I firmly believe my code is self-explanatory.

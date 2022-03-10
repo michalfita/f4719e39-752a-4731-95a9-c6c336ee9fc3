@@ -6,6 +6,7 @@ use account::Account;
 use csv::{ReaderBuilder, Trim};
 #[cfg(test)]
 use itertools::Itertools;
+use log::{info, debug, error};
 
 mod input;
 mod account;
@@ -22,12 +23,14 @@ struct Register {
 
 impl Register {
     pub fn execute(&mut self, instruction: input::Instruction) {
-        
+        debug!("Processing account for client {}", instruction.client());
         let account = self.thebook.entry(instruction.client()).or_insert_with(|| {
             Account::default()
         });
 
-        account.apply(instruction).ok(); // Ignore account processing errors, potential place to log them
+        account.apply(instruction).unwrap_or_else(|error| {
+            error!("Account instruction error: {}", error);
+        })
     }
 
     pub fn process(&mut self, inputfilename: &Path) -> Result {
@@ -36,12 +39,14 @@ impl Register {
             .trim(Trim::All)
             .from_path(inputfilename)?;
     
+        debug!("Consuming input data...");
         for result in reader.deserialize() {
             let record: input::workaround::Instruction = result?;
             let record: input::Instruction = record.into();
 
             self.execute(record);
         }
+        debug!("...consuption of input data finished.");
     
         Ok(())
     }
@@ -49,12 +54,15 @@ impl Register {
     fn inner_dump(thebook_iter: impl IntoIterator<Item = (u16, Account)>, sink: &mut impl Write) -> Result {
         let mut writer = csv::Writer::from_writer(sink);
 
+        debug!("Dumping the book state...");
         for (client, account) in thebook_iter {
             let record = output::Output::convert_from(client, account);
             writer.serialize(record)?
         }
-
+        debug!("...dumping the book finished.");
+        
         writer.flush()?;
+        debug!("Output writer flushed.");
 
         Ok(())
     }
@@ -74,11 +82,13 @@ impl Register {
 fn main() -> Result {
     use errors::TransactionSystemError::ArgumentsError;
 
-    let inputfile = env::args().nth(1).ok_or(ArgumentsError("no input file provided".to_owned()))?;
-   
+    let inputfile = env::args().nth(1).ok_or_else(|| ArgumentsError("no input file provided".to_owned()))?;
+
     let mut register = Register::default();
+    info!("Processing for {} file started.", inputfile);
     register.process(Path::new(&inputfile))?;
     register.dump(&mut io::stdout())?;
+    info!("Processing for {} file finished.", inputfile);
 
     Ok(())
 }

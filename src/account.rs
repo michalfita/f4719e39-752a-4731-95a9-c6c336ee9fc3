@@ -1,5 +1,6 @@
 use std::collections::{HashMap};
 
+use log::trace;
 use rust_decimal::{Decimal};
 use serde::Serialize;
 
@@ -18,6 +19,7 @@ pub struct Account {
 
 impl Account {
     fn deposit(&mut self, data: Transaction) -> Result {
+        trace!("client {} tx {} deposits {}", data.client(), data.tx(), data.amount());
         self.available += data.amount();
         self.total += data.amount();
         self.txhistory.insert(data.tx(), data);
@@ -26,6 +28,7 @@ impl Account {
     }
 
     fn withdrawal(&mut self, mut data: Transaction) -> Result {
+        trace!("client {} tx {} attempts withdraw {}", data.client(), data.tx(), data.amount());
         let mut available = self.available;
         available -= data.amount();
         if available >= Decimal::new(0, 0) {
@@ -44,6 +47,7 @@ impl Account {
     }
 
     fn dispute(&mut self, data: Operation) -> Result {
+        trace!("client {} tx {} receives dispute", data.client(), data.tx());
         // Refer to `README.md` for information about disputes repeated for the same transaction
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.available -= entry.amount();
@@ -59,6 +63,7 @@ impl Account {
     }
 
     fn resolve(&mut self, data: Operation) -> Result {
+        trace!("client {} tx {} resolves dispute", data.client(), data.tx());
         // Refer to `README.md` for information about resolves for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.available += entry.amount();
@@ -74,6 +79,7 @@ impl Account {
     }
 
     fn chargeback(&mut self, data: Operation) -> Result {
+        trace!("client {} tx {} charges back of the dispute", data.client(), data.tx());
         // Refer to `README.md` for information about chargebacks for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
             self.locked = true;
