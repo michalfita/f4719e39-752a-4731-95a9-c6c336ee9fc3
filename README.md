@@ -26,7 +26,7 @@ The specification of `dispute` and `chargeback` dispositions doesn't state any r
 
 The specification of `whithdrawal`, `dispute` and `chargeback` do not mention them together, what makes it open for interpretation; the most straightforward one is to assume it doesn't happen in the input data. I understand this may be plain wrong.
 
-The specification of `dispute`, `resolve` and `chargeback` do not mention how to deal with multiple attempts of these instructions for the same transaction, epecially for cases like for example multiple disputes before `resolve` or `chargeback`. It's assumed (taking timeframe for implementation into account) these doesn't happen in the input data - to deal with these we need extra tracking information for each transaction to keep their state and prevent another dispute to be raised, if any transaction started the process ever. As the state isn't kept I don't ignore `resolve` and `chargeback` requests for transactions that didn't have `dispute` - this looks to me like most obvious flaw in the logic (TODO: consider implementing this).
+The specification of `dispute`, `resolve` and `chargeback` do not mention how to deal with multiple attempts of these instructions for the same transaction, epecially for cases like for example multiple disputes before `resolve` or `chargeback`. I changed my initial assumption and implemented (_Stage 5_) the mechanism holding transations' state and acting sensible; it prevents multiple resolutions and multiple chagebacks and allow both only for already disputed transactions, plus new dispute for resolved transaction.
 
 In normal work conditions both above flaws would be raised for clarification with departament or people responsible for preparing the document in the first place.
 

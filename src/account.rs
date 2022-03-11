@@ -5,7 +5,7 @@ use rust_decimal::{Decimal};
 use serde::Serialize;
 
 use crate::errors::TransactionSystemError;
-use crate::input::{Instruction, Transaction, Operation};
+use crate::instructions::{Instruction, Transaction, Operation};
 use crate::result::Result;
 
 #[derive(Serialize, Debug, Default)]
@@ -14,6 +14,7 @@ pub struct Account {
     held: Decimal,
     total: Decimal,
     locked: bool,
+    #[serde(skip)]
     txhistory: HashMap<u32, Transaction>,
 }
 
@@ -50,10 +51,11 @@ impl Account {
         trace!("client {} tx {} receives dispute", data.client(), data.tx());
         // Refer to `README.md` for information about disputes repeated for the same transaction
         if let Some(entry) = self.txhistory.get(&data.tx()) {
-            self.available -= entry.amount();
-            self.held += entry.amount();
-
-            Ok(())
+            entry.try_set_disputed().and_then( |_| {
+                self.available -= entry.amount();
+                self.held += entry.amount();
+                Ok(())
+            })
         } else {
             Err(TransactionSystemError::OperationError{
                 message: "attempt to dispute non-existing transaction".to_owned(),
@@ -66,10 +68,12 @@ impl Account {
         trace!("client {} tx {} resolves dispute", data.client(), data.tx());
         // Refer to `README.md` for information about resolves for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
-            self.available += entry.amount();
-            self.held -= entry.amount();
+            entry.try_set_resolved().and_then(|_| {
+                self.available += entry.amount();
+                self.held -= entry.amount();
+                Ok(())
+            })
 
-            Ok(())
         } else {
             Err(TransactionSystemError::OperationError{
                 message: "attempt to resolve non-existing transaction".to_owned(),
@@ -82,11 +86,12 @@ impl Account {
         trace!("client {} tx {} charges back of the dispute", data.client(), data.tx());
         // Refer to `README.md` for information about chargebacks for transactions without disputes started
         if let Some(entry) = self.txhistory.get(&data.tx()) {
-            self.locked = true;
-            self.total -= entry.amount();
-            self.held -= entry.amount();
-
-            Ok(())
+            entry.try_set_chargedback().and_then(|_| {
+                self.locked = true;
+                self.total -= entry.amount();
+                self.held -= entry.amount();
+                Ok(())
+            })
         } else {
             Err(TransactionSystemError::OperationError{
                 message: "attempt to chargeback non-existing transaction".to_owned(),
@@ -125,7 +130,7 @@ impl Account {
 #[cfg(test)]
 mod test {
     use rust_decimal::{Decimal, prelude::FromPrimitive};
-    use crate::input::{Transaction, Operation};
+    use crate::instructions::{Transaction, Operation};
     use super::Account;
 
     #[test]

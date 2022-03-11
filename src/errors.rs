@@ -1,6 +1,6 @@
 use thiserror::Error;
 use csv::Error as CSVError;
-use crate::input::{Transaction, Operation};
+use crate::instructions::{Transaction, Operation, TransactionState};
 use std::io::Error as IOError;
 
 #[derive(Error, Debug)]
@@ -21,4 +21,9 @@ pub enum TransactionSystemError {
         message: String,
         operation: Operation,
     },
+    #[error("Illegal attempt to change state: {oldstate} => {newstate}")]
+    TransactionStateError {
+        oldstate: TransactionState,
+        newstate: TransactionState
+    }
 }

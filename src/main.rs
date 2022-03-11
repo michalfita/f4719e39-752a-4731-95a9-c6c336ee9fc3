@@ -8,13 +8,14 @@ use csv::{ReaderBuilder, Trim};
 use itertools::Itertools;
 use log::{info, debug, error};
 
-mod input;
+mod instructions;
 mod account;
 mod output;
 mod errors;
 mod result;
 
 use crate::result::Result;
+use crate::instructions::Instruction;
 
 #[derive(Debug, Default)]
 struct Register {
@@ -22,7 +23,7 @@ struct Register {
 }
 
 impl Register {
-    pub fn execute(&mut self, instruction: input::Instruction) {
+    pub fn execute(&mut self, instruction: Instruction) {
         debug!("Processing account for client {}", instruction.client());
         let account = self.thebook.entry(instruction.client()).or_insert_with(|| {
             Account::default()
@@ -41,8 +42,8 @@ impl Register {
     
         debug!("Consuming input data...");
         for result in reader.deserialize() {
-            let record: input::workaround::Instruction = result?;
-            let record: input::Instruction = record.into();
+            let record: instructions::workaround::Instruction = result?;
+            let record: Instruction = record.into();
 
             self.execute(record);
         }

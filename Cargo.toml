@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 csv = "1.1.6"
 log = { version = "0.4.14", features = ["max_level_off"] }
+parse-display = "0.5.5"
 rust_decimal = { version = "1.22.0", features = ["serde-with-float"] }
 serde = { version = "1.0.136", features = ["derive"] }
 thiserror = "1.0.30"

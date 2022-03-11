@@ -1,17 +1,36 @@
+use std::cell::Cell;
 use rust_decimal::Decimal;
 use serde::Serialize;
+use parse_display::Display;
+use crate::{result::Result, errors::TransactionSystemError};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Display, Clone, Copy)]
+#[display(style = "snake_case")]
+pub enum TransactionState {
+    Undisputed,
+    Disputed,
+    Resolved,
+    Chargedback,
+}
+
+impl Default for TransactionState {
+    fn default() -> Self {
+        TransactionState::Undisputed
+    }
+}
+
+#[derive(Debug)]
 pub struct Transaction {
     client: u16,
     tx: u32,
     amount: Decimal,
+    state: Cell<TransactionState>,
 }
 
 impl Transaction {
     #[cfg(test)]
     pub fn new(client: u16, tx: u32, amount: Decimal) -> Self {
-        Self { client, tx, amount }
+        Self { client, tx, amount, state: Cell::new(TransactionState::Undisputed) }
     }
 
     pub fn amount(&self) -> Decimal {
@@ -28,6 +47,55 @@ impl Transaction {
 
     pub fn negate(&mut self) {
         self.amount.set_sign_negative(true)
+    }
+
+    pub fn state(&self) -> TransactionState {
+        self.state.get()
+    }
+
+    pub fn try_set_disputed(&self) -> Result {
+        match self.state.get() {
+            TransactionState::Undisputed | TransactionState::Resolved => {
+                self.state.set(TransactionState::Disputed);
+                Ok(())
+            },
+            _ => {
+                Err(TransactionSystemError::TransactionStateError{
+                    oldstate: self.state.get(),
+                    newstate: TransactionState::Disputed}
+                )
+            }
+        }
+    }
+
+    pub fn try_set_resolved(&self) -> Result{
+        match self.state.get() {
+            TransactionState::Disputed => {
+                self.state.set(TransactionState::Resolved);
+                Ok(())
+            },
+            _ => {
+                Err(TransactionSystemError::TransactionStateError{
+                    oldstate: self.state.get(),
+                    newstate: TransactionState::Resolved}
+                )
+            }
+        }
+    }
+
+    pub fn try_set_chargedback(&self) -> Result {
+        match self.state.get() {
+            TransactionState::Disputed => {
+                self.state.set(TransactionState::Chargedback);
+                Ok(())
+            },
+            _ => {
+                Err(TransactionSystemError::TransactionStateError{
+                    oldstate: self.state.get(),
+                    newstate: TransactionState::Chargedback}
+                )
+            }
+        }
     }
 }
 
@@ -52,8 +120,7 @@ impl Operation {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[derive(Debug)]
 pub enum Instruction {
     /// A deposit is a credit to the client's asset account, meaning it should increase the available and
     /// total funds of the client account
@@ -100,11 +167,13 @@ impl From<workaround::Instruction> for Instruction {
                 client: instruction.client,
                 tx: instruction.tx,
                 amount: instruction.amount.unwrap(),
+                state: Cell::new(TransactionState::Undisputed)
             }),
             WIT::Withdrawal => Instruction::Withdrawal(Transaction{
                 client: instruction.client,
                 tx: instruction.tx,
                 amount: instruction.amount.unwrap(),
+                state: Cell::new(TransactionState::Undisputed)
             }),
             WIT::Dispute => Instruction::Dispute(Operation{
                 client: instruction.client,
@@ -144,5 +213,60 @@ pub mod workaround {
         pub (super) client: u16,
         pub (super) tx: u32,
         pub (super) amount: Option<Decimal>,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rust_decimal::Decimal;
+    use super::{workaround, Instruction};
+
+    fn give_me_instrution() -> Instruction {
+        workaround::Instruction {
+            typ: workaround::InstructionType::Deposit,
+            client: 444,
+            tx: 555,
+            amount: Some(Decimal::new(6666, 1)),
+        }.into()
+    }
+
+    #[test]
+    fn try_set_disputed() {
+        let instruction = give_me_instrution();
+
+        if let Instruction::Deposit(transaction) = instruction {
+            assert!(matches!(transaction.try_set_disputed(), Ok(_)));
+            assert!(matches!(transaction.try_set_disputed(), Err(_)));
+        } else {
+            panic!("unexpected wrong instruction");
+        }
+    }
+
+    #[test]
+    fn try_set_resolved() {
+        let instruction = give_me_instrution();
+
+        if let Instruction::Deposit(transaction) = instruction {
+            assert!(matches!(transaction.try_set_resolved(), Err(_)));
+            assert!(matches!(transaction.try_set_disputed(), Ok(_)));
+            assert!(matches!(transaction.try_set_resolved(), Ok(_)));
+            assert!(matches!(transaction.try_set_resolved(), Err(_)));
+        } else {
+            panic!("unexpected wrong instruction");
+        }
+    }
+
+    #[test]
+    fn try_set_chargedback() {
+        let instruction = give_me_instrution();
+
+        if let Instruction::Deposit(transaction) = instruction {
+            assert!(matches!(transaction.try_set_chargedback(), Err(_)));
+            assert!(matches!(transaction.try_set_disputed(), Ok(_)));
+            assert!(matches!(transaction.try_set_chargedback(), Ok(_)));
+            assert!(matches!(transaction.try_set_chargedback(), Err(_)));
+        } else {
+            panic!("unexpected wrong instruction");
+        }
     }
 }
