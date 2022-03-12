@@ -49,10 +49,6 @@ impl Transaction {
         self.amount.set_sign_negative(true)
     }
 
-    pub fn state(&self) -> TransactionState {
-        self.state.get()
-    }
-
     pub fn try_set_disputed(&self) -> Result {
         match self.state.get() {
             TransactionState::Undisputed | TransactionState::Resolved => {

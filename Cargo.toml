@@ -6,11 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-fs = "1.5.0"
 csv = "1.1.6"
+csv-async = { version = "1.2.4", features = ["with_serde"] }
 log = { version = "0.4.14", features = ["max_level_off"] }
 parse-display = "0.5.5"
 rust_decimal = { version = "1.22.0", features = ["serde-with-float"] }
 serde = { version = "1.0.136", features = ["derive"] }
+smol = "1.2.5"
+smol-potat = "1.1.2"
 thiserror = "1.0.30"
 
 [dev-dependencies]

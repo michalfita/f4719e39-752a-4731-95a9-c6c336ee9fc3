@@ -1,5 +1,6 @@
 use thiserror::Error;
-use csv::Error as CSVError;
+use csv_async::Error as CSVError;
+use csv::Error as LegacyCSVError;
 use crate::instructions::{Transaction, Operation, TransactionState};
 use std::io::Error as IOError;
 
@@ -9,6 +10,8 @@ pub enum TransactionSystemError {
     ArgumentsError(String),
     #[error("CSV processing failure")]
     CSVError(#[from] CSVError),
+    #[error("CSV processing failure")]
+    LegacyCSVError(#[from] LegacyCSVError),
     #[error("I/O operation failure")]
     IOError(#[from] IOError),
     #[error("Transaction processing failure: {message} / {transaction:?}")]

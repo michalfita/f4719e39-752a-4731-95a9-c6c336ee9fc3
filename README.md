@@ -1,5 +1,7 @@
 # Simple Transaction System
 
+** THIS IS ASYNC BRANCH**
+
 ## Basics
 I followed guidelines to validate in unit tests whether data format matches the specification and whether all instructions feed to the program are accepted.
 
@@ -61,6 +63,9 @@ Adding error handling to `account.rs` has impact on processing power in cases wh
 
 ### Stage 4: Logging
 Adding logging if not disabled may impact the processing efficiency. However, this as feature is disabled.
+
+### Stage 6: Async
+Turning the application into asynchronous one should improve its efficiency. This is, however, basic asyn implementation without putting too much pressure on execution parallelizm due to nature of very simple computations used.
 
 ## Maintainability
 I firmly believe my code is self-explanatory.

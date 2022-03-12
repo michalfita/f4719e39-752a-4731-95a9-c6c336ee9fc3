@@ -1,12 +1,14 @@
-use std::io::Write;
 use std::{collections::HashMap, io};
 use std::env;
 use std::path::Path;
 use account::Account;
-use csv::{ReaderBuilder, Trim};
+use csv_async::{AsyncReaderBuilder, Trim};
+use log::{info, debug, error};
 #[cfg(test)]
 use itertools::Itertools;
-use log::{info, debug, error};
+use smol::io::AsyncWrite;
+use smol::stream::StreamExt;
+use std::marker::Unpin;
 
 mod instructions;
 mod account;
@@ -34,14 +36,16 @@ impl Register {
         })
     }
 
-    pub fn process(&mut self, inputfilename: &Path) -> Result {
-        let mut reader = ReaderBuilder::new()
+    pub async fn process(&mut self, inputfilename: &Path) -> Result {
+        let input = async_fs::File::open(inputfilename).await?;
+        let mut reader = AsyncReaderBuilder::new()
             .flexible(true)
             .trim(Trim::All)
-            .from_path(inputfilename)?;
+            .create_deserializer(input);
     
         debug!("Consuming input data...");
-        for result in reader.deserialize() {
+        let mut records = reader.deserialize();
+        while let Some(result) = records.next().await {
             let record: instructions::workaround::Instruction = result?;
             let record: Instruction = record.into();
 
@@ -52,43 +56,45 @@ impl Register {
         Ok(())
     }
 
-    fn inner_dump(thebook_iter: impl IntoIterator<Item = (u16, Account)>, sink: &mut impl Write) -> Result {
-        let mut writer = csv::Writer::from_writer(sink);
+    pub async fn inner_dump(thebook_iter: impl IntoIterator<Item = (u16, Account)>, sink: &mut (impl AsyncWrite + Unpin)) -> Result {
+        let mut writer = csv_async::AsyncSerializer::from_writer(sink);
 
         debug!("Dumping the book state...");
         for (client, account) in thebook_iter {
             let record = output::Output::convert_from(client, account);
-            writer.serialize(record)?
+            writer.serialize(record).await?
         }
         debug!("...dumping the book finished.");
         
-        writer.flush()?;
+        writer.flush().await?;
         debug!("Output writer flushed.");
 
         Ok(())
     }
 
-    pub fn dump(self, sink: &mut impl Write) -> Result {
+    pub async fn dump(self, sink: &mut (impl AsyncWrite + Unpin)) -> Result {
         let thebook_iter = self.thebook.into_iter();
-        Self::inner_dump(thebook_iter, sink)
+        Self::inner_dump(thebook_iter, sink).await
     }
 
     #[cfg(test)] // Outside test leave unsorted for performance reasons
-    pub fn dump_sorted(self, sink: &mut impl Write) -> Result {
+    pub async fn dump_sorted(self, sink: &mut (impl AsyncWrite + Unpin)) -> Result {
         let thebook_iter = self.thebook.into_iter().sorted_by_key(|x| x.0);
-        Self::inner_dump(thebook_iter, sink)
+        Self::inner_dump(thebook_iter, sink).await
     }
 }
 
-fn main() -> Result {
+#[smol_potat::main]
+async fn main() -> Result {
     use errors::TransactionSystemError::ArgumentsError;
 
     let inputfile = env::args().nth(1).ok_or_else(|| ArgumentsError("no input file provided".to_owned()))?;
 
     let mut register = Register::default();
     info!("Processing for {} file started.", inputfile);
-    register.process(Path::new(&inputfile))?;
-    register.dump(&mut io::stdout())?;
+    register.process(Path::new(&inputfile)).await?;
+    let mut stdout = smol::Unblock::new(io::stdout());
+    register.dump(&mut stdout).await?;
     info!("Processing for {} file finished.", inputfile);
 
     Ok(())
@@ -96,26 +102,27 @@ fn main() -> Result {
 
 #[cfg(test)]
 mod test {
-    use std::io::{Write, self};
+    use std::io::{Write};
     use indoc::*;
     use tempfile::NamedTempFile;
+    use smol::io::Cursor;
 
-    fn test_instructions_batch(feed: &str, expectation: &str) {
+    async fn test_instructions_batch(feed: &str, expectation: &str) {
         let mut file = NamedTempFile::new().expect("failed to create temporary file");
         write!(file, "{}", feed).expect("failed to write test data");
 
         let mut register = super::Register::default();
-        register.process(file.path()).expect("failed to batch process");
+        register.process(file.path()).await.expect("failed to batch process");
 
-        let mut sink = io::Cursor::new(Vec::<u8>::new());
-        register.dump_sorted(&mut sink).expect("failed to dump");
+        let mut sink = Cursor::new(Vec::<u8>::new());
+        register.dump_sorted(&mut sink).await.expect("failed to dump");
 
         let output: String = std::str::from_utf8(&sink.into_inner()).expect("faile to strigify the buffer").to_string();
         assert_eq!(output, expectation);
     }
 
-    #[test]
-    fn basic_transactions_batch() {
+    #[smol_potat::test]
+    async fn basic_transactions_batch() {
         const TEST_FEED: &str = indoc!("
             type,   client, tx, amount
             deposit,     1,  1,   11.1
@@ -135,11 +142,11 @@ mod test {
             3,33.3,0,33.3,false
         ");
 
-        test_instructions_batch(TEST_FEED, TEST_EXPECTATION)
+        test_instructions_batch(TEST_FEED, TEST_EXPECTATION).await
     }
 
-    #[test]
-    fn dispute_operations_batch() {
+    #[smol_potat::test]
+    async fn dispute_operations_batch() {
         const TEST_FEED: &str = indoc!("
             type, client, tx, amount
             deposit,   1,  1, 11.1
@@ -161,11 +168,11 @@ mod test {
             3,-22.2,55.5,33.3,false
         ");
 
-        test_instructions_batch(TEST_FEED, TEST_EXPECTATION)
+        test_instructions_batch(TEST_FEED, TEST_EXPECTATION).await
     }
 
-    #[test]
-    fn resolve_operations_batch() {
+    #[smol_potat::test]
+    async fn resolve_operations_batch() {
         const TEST_FEED: &str = indoc!("
             type, client,  tx,  amount
             deposit,   1,  1, 100.1234
@@ -195,11 +202,11 @@ mod test {
             5,701.0357,0.0000,701.0357,false
         ");
 
-        test_instructions_batch(TEST_FEED, TEST_EXPECTATION)
+        test_instructions_batch(TEST_FEED, TEST_EXPECTATION).await
     }
 
-    #[test]
-    fn chargeback_operations_batch() {
+    #[smol_potat::test]
+    async fn chargeback_operations_batch() {
         const TEST_FEED: &str = indoc!("
             type, client,  tx,  amount
             deposit,   1,  1, 100.1234
@@ -229,6 +236,6 @@ mod test {
             5,350.1234,0.0000,350.1234,true
         ");
 
-        test_instructions_batch(TEST_FEED, TEST_EXPECTATION)
+        test_instructions_batch(TEST_FEED, TEST_EXPECTATION).await
     }
 }
